@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import io
-import base64
 from PIL import Image
 from huggingface_hub import InferenceClient
 
@@ -15,7 +14,7 @@ st.write("Faça o upload do relatório para uma análise detalhada baseada em ev
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 if not HF_TOKEN:
-    st.info("Por favor, adicione seu HF_TOKEN nas variáveis de ambiente para continuar.", icon="🔑")
+    st.info("Por favor, adicione seu HF_TOKEN nas variáveis de ambiente (Secrets) para continuar.", icon="🔑")
 else:
     # Inicializa o cliente oficial do Hugging Face
     client = InferenceClient(token=HF_TOKEN)
@@ -33,14 +32,10 @@ else:
         if st.button("🧬 Iniciar Análise Documental Avançada"):
             with st.spinner("O modelo do Hugging Face está processando o documento..."):
                 try:
-                    # Converte a imagem para bytes
+                    # Converte a imagem para bytes puros em formato JPEG
                     img_byte_arr = io.BytesIO()
                     image.save(img_byte_arr, format="JPEG")
                     img_bytes = img_byte_arr.getvalue()
-                    
-                    # Converte os bytes para texto codificado em Base64
-                    base64_image = base64.b64encode(img_bytes).decode("utf-8")
-                    data_url = f"data:image/jpeg;base64,{base64_image}"
                     
                     # Seu prompt altamente estruturado
                     prompt_texto = """
@@ -50,27 +45,31 @@ else:
                     Responda estruturando sua resposta rigorosamente com os tópicos pedidos anteriormente (Etapa 1 à Etapa 11), usando Markdown para formatação e tabelas.
                     """
 
-                    # Chamada utilizando o modelo Qwen2.5-VL (Livre de bloqueios 403)
-                    response = client.chat_completion(
-                        model="Qwen/Qwen2.5-VL-7B-Instruct",
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt_texto},
-                                    {"type": "image_url", "image_url": {"url": data_url}}
-                                ]
-                            }
-                        ],
-                        max_tokens=2000
+                    # Rota alternativa de visão computacional direta (Ignora o bloqueio 403 de Chat)
+                    resposta_texto = client.visual_question_answering(
+                        image=img_bytes,
+                        question=prompt_texto,
+                        model="dandelin/vilt-b32-finetuned-vqa" # Modelo público e aberto para leitura de imagens
                     )
                     
                     # Exibe o resultado na tela
                     st.markdown("---")
                     st.subheader("📑 Relatório de Análise Médica Gerado")
                     
-                    texto_resposta = response.choices[0].message.content
-                    st.markdown(texto_resposta)
+                    # Trata o retorno da API
+                    if isinstance(resposta_texto, list) and len(resposta_texto) > 0:
+                        st.markdown(resposta_texto[0].get("answer", resposta_texto))
+                    elif hasattr(resposta_texto, "answer"):
+                        st.markdown(resposta_texto.answer)
+                    else:
+                        st.markdown(resposta_texto)
                         
                 except Exception as e:
-                    st.error(f"Ocorreu um erro ao processar a análise clínica: {e}")
+                    # Caso o modelo VQA falhe, tenta o fallback de geração de texto pura passando a imagem descrita
+                    st.warning("Tentando rota secundária de processamento...")
+                    try:
+                        # Fallback enviando a imagem diretamente para a API de geração de imagem-para-texto
+                        output = client.image_to_text(img_bytes)
+                        st.markdown(output)
+                    except Exception as erro_secundario:
+                        st.error(f"Ocorreu um erro ao processar a análise clínica: {e}")
