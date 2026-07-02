@@ -38,7 +38,7 @@ else:
                     image.save(img_byte_arr, format="JPEG")
                     img_bytes = img_byte_arr.getvalue()
                     
-                    # Converte os bytes para texto codificado em Base64 (Evita o erro de JSON serializable)
+                    # Converte os bytes para texto codificado em Base64
                     base64_image = base64.b64encode(img_bytes).decode("utf-8")
                     data_url = f"data:image/jpeg;base64,{base64_image}"
                     
@@ -50,9 +50,9 @@ else:
                     Responda estruturando sua resposta rigorosamente com os tópicos pedidos anteriormente (Etapa 1 à Etapa 11), usando Markdown para formatação e tabelas.
                     """
 
-                    # Chamada usando o formato correto de URL de imagem de dados (Data URL)
+                    # Chamada utilizando o modelo Qwen2.5-VL (Livre de bloqueios 403)
                     response = client.chat_completion(
-                        model="meta-llama/Llama-3.2-11B-Vision-Instruct",
+                        model="Qwen/Qwen2.5-VL-7B-Instruct",
                         messages=[
                             {
                                 "role": "user",
