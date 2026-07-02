@@ -1,141 +1,83 @@
 import streamlit as st
-import google.generativeai as genai
 import os
+import requests
+import base64
 from PIL import Image
+import io
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Analisador Clínico Avançado", page_icon="🩺", layout="centered")
 
-st.title("🩺 Analisador Clínico e Auditor de Relatórios Médicos")
-st.write("Faça o upload do relatório (imagem ou PDF) para uma análise detalhada baseada em evidências.")
+st.title("🩺 Analisador Clínico e Auditor de Relatórios Médicos (HF)")
+st.write("Faça o upload do relatório para uma análise detalhada baseada em evidências.")
 
-# Configuração da API do Gemini
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# Pega o Token do Hugging Face das variáveis de ambiente
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-if not GOOGLE_API_KEY:
-    st.info("Por favor, adicione sua GOOGLE_API_KEY nas variáveis de ambiente para continuar.", icon="🔑")
+if not HF_TOKEN:
+    st.info("Por favor, adicione seu HF_TOKEN nas variáveis de ambiente para continuar.", icon="🔑")
 else:
-    genai.configure(api_key=GOOGLE_API_KEY)
-    
-    # Inicializa o modelo Gemini 1.5 Flash (ideal para documentos complexos e tabelas)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     # Componente de upload de arquivo
-    uploaded_file = st.file_uploader("Escolha o arquivo do relatório (JPG, PNG ou PDF)", type=["png", "jpg", "jpeg", "pdf"])
+    uploaded_file = st.file_uploader("Escolha o arquivo do relatório (JPG ou PNG)", type=["png", "jpg", "jpeg"])
 
     if uploaded_file is not None:
         st.success("Arquivo carregado com sucesso!")
         
-        # Exibe uma prévia se for imagem
-        if uploaded_file.type in ["image/jpeg", "image/png"]:
-            image = Image.open(uploaded_file)
-            st.image(image, caption="Prévia do documento enviado", use_column_width=True)
+        # Exibe uma prévia da imagem
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Prévia do documento enviado", use_column_width=True)
 
-        # Botão para iniciar a análise
         if st.button("🧬 Iniciar Análise Documental Avançada"):
-            with st.spinner("A IA está realizando o OCR e aplicando as diretrizes clínicas..."):
+            with st.spinner("O modelo do Hugging Face está processando o documento..."):
                 try:
-                    # Preparando o arquivo para enviar para a API
-                    bytes_data = uploaded_file.getvalue()
-                    mime_type = uploaded_file.type
-                    file_part = {
-                        "mime_type": mime_type,
-                        "data": bytes_data
+                    # Converte a imagem para Base64 para enviar via API
+                    buffered = io.BytesIO()
+                    image.save(buffered, format="JPEG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    
+                    # Definição do modelo multimodal da Meta no Hugging Face
+                    API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-11B-Vision-Instruct"
+                    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+                    
+                    # Seu prompt altamente estruturado (o mesmo que você definiu)
+                    prompt_texto = """
+                    Você é um médico especialista em análise documental clínica, com amplo conhecimento em medicina baseada em evidências e classificação internacional de doenças (CID-10 e CID-11).
+                    Sua tarefa é analisar cuidadosamente o relatório médico enviado na imagem.
+
+                    Responda estruturando sua resposta rigorosamente com os tópicos pedidos anteriormente (Etapa 1 à Etapa 11), usando Markdown para formatação e tabelas.
+                    """
+
+                    # Payload formatado para modelos de visão (Chat Completion)
+                    payload = {
+                        "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt_texto},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                                ]
+                            }
+                        ],
+                        "max_tokens": 2000
                     }
                     
-                    # Seu prompt altamente estruturado
-                    prompt = """
-                    Você é um médico especialista em análise documental clínica, com amplo conhecimento em medicina baseada em evidências e classificação internacional de doenças (CID-10 e CID-11).
-                    Sua tarefa é analisar cuidadosamente o relatório médico enviado (inclusive se for proveniente de OCR ou imagem manuscrita).
-
-                    Responda estritamente estruturando sua resposta com os seguintes tópicos em Markdown:
-
-                    ### 🛡️ Etapa 1 – Validação da leitura
-                    * **Grau de confiança da leitura:** (Alto, Médio ou Baixo)
-                    * **Trechos ilegíveis, incompletos ou duvidosos:** * *Nota:* Nunca invente informações que não estejam claramente presentes no documento. Caso alguma informação seja incerta, informe isso explicitamente.
-
-                    ### 📋 Etapa 2 – Resumo do relatório
-                    * **Motivo da consulta:**
-                    * **Principais sintomas:**
-                    * **Histórico clínico relevante:**
-                    * **Diagnósticos descritos:**
-                    * **Exames citados:**
-                    * **Condutas adotadas:**
-                    * **Medicamentos prescritos:**
-                    * **Recomendações médicas:**
-                    * **Conclusão do relatório:**
-
-                    ### 🔬 Etapa 3 – Análise clínica
-                    1. **Diagnóstico principal:** (Explique qual parece ser a doença principal descrita)
-                    2. **Diagnósticos secundários:** (Caso existam, liste-os)
-                    3. **Classificação Internacional de Doenças (CID):**
-                       * **CID-10:**
-                       * **CID-11:** (quando aplicável)
-                       * *Nota:* Caso o CID não esteja explícito, indique o CID mais provável e explique o motivo.
-
-                    ### 📊 Etapa 4 – Evidências encontradas
-                    (Liste quais informações do relatório sustentam o diagnóstico, como sintomas, exames, achados clínicos, histórico e evolução)
-
-                    ### 💊 Etapa 5 – Tratamento recomendado atualmente
-                    Com base nas diretrizes clínicas mais atuais e na medicina baseada em evidências, descreva:
-                    * **Tratamento medicamentoso usual:**
-                    * **Tratamentos não medicamentosos:**
-                    * **Fisioterapia, psicoterapia ou reabilitação:** (quando indicados)
-                    * **Cirurgia:** (quando indicada)
-                    * **Exames complementares recomendados:**
-                    * **Acompanhamento por especialistas:**
-                    * **Prognóstico esperado:**
-                    *(Caso existam diferentes opções terapêuticas, apresente todas)*
-
-                    ### 🔄 Etapa 6 – Comparação
-                    * **Status do tratamento no relatório:** (está atualizado / está parcialmente atualizado / está desatualizado)
-                    * **Justificativa:** (Explique os motivos detalhadamente)
-
-                    ### 📈 Etapa 7 – Prognóstico
-                    * **Expectativa de evolução:**
-                    * **Possibilidade de cura ou controle:**
-                    * **Riscos de agravamento e possíveis complicações:**
-
-                    ### 💰 Etapa 8 – Estimativa de custos do tratamento
-                    Apresente uma estimativa aproximada considerando valores médios praticados no Brasil. Organize exatamente na tabela Markdown abaixo:
-
-                    | Item | Frequência | Valor aproximado (R$) |
-                    | :--- | :--- | :--- |
-                    | Consultas | | |
-                    | Exames | | |
-                    | Medicamentos | | |
-                    | Terapias | | |
-                    | Procedimentos | | |
-
-                    * **Custo mensal estimado:** R$ 
-                    * **Custo anual estimado:** R$ 
-                    * *Aviso de Custos:* Sempre informe que os valores são estimativas e podem variar conforme a região, convênio, rede pública ou privada e o tratamento efetivamente adotado.
-
-                    ### ⚠️ Etapa 9 – Grau de gravidade
-                    * **Classificação:** (Baixa / Moderada / Grave / Muito grave)
-                    * **Justificativa técnica:**
-
-                    ### 🎯 Etapa 10 – Pontos de atenção
-                    (Liste inconsistências, informações ausentes, exames que ajudariam no diagnóstico e dúvidas relevantes)
-
-                    ### 🏁 Etapa 11 – Conclusão
-                    Faça uma conclusão em linguagem técnica, resumindo: doença principal, CID, situação clínica, tratamento indicado atualmente, prognóstico e estimativa de custos.
-
-                    ---
-                    **REGRAS OBRIGATÓRIAS DE RESPOSTA:**
-                    1. Não invente informações. Diferencie claramente fatos presentes no relatório de inferências clínicas.
-                    2. Quando houver incerteza, informe explicitamente.
-                    3. Utilize linguagem técnica, objetiva e organizada.
-                    4. Sempre indique que a conclusão DEPENDE de confirmação por avaliação médica presencial.
-                    """
+                    # Chamada HTTP para a API do Hugging Face
+                    response = requests.post(API_URL, headers=headers, json=payload)
+                    result = response.json()
                     
-                    # Chamada da API passando o novo prompt e o documento
-                    response = model.generate_content([prompt, file_part])
-                    
-                    # Exibindo o resultado na tela do Streamlit
+                    # Exibe o resultado na tela
                     st.markdown("---")
                     st.subheader("📑 Relatório de Análise Médica Gerado")
-                    st.markdown(response.text)
                     
+                    # Trata a resposta que costuma vir na estrutura de chat
+                    if "choices" in result:
+                        texto_resposta = result["choices"][0]["message"]["content"]
+                        st.markdown(texto_resposta)
+                    elif "generated_text" in result:
+                        st.markdown(result["generated_text"])
+                    else:
+                        st.markdown(result)
+                        
                 except Exception as e:
                     st.error(f"Ocorreu um erro ao processar a análise clínica: {e}")
