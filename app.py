@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import io
+import base64
 from PIL import Image
 from huggingface_hub import InferenceClient
 
@@ -32,10 +33,14 @@ else:
         if st.button("🧬 Iniciar Análise Documental Avançada"):
             with st.spinner("O modelo do Hugging Face está processando o documento..."):
                 try:
-                    # Converte a imagem para bytes na memória
+                    # Converte a imagem para bytes
                     img_byte_arr = io.BytesIO()
-                    image.save(img_byte_arr, format=image.format if image.format else "JPEG")
+                    image.save(img_byte_arr, format="JPEG")
                     img_bytes = img_byte_arr.getvalue()
+                    
+                    # Converte os bytes para texto codificado em Base64 (Evita o erro de JSON serializable)
+                    base64_image = base64.b64encode(img_bytes).decode("utf-8")
+                    data_url = f"data:image/jpeg;base64,{base64_image}"
                     
                     # Seu prompt altamente estruturado
                     prompt_texto = """
@@ -45,7 +50,7 @@ else:
                     Responda estruturando sua resposta rigorosamente com os tópicos pedidos anteriormente (Etapa 1 à Etapa 11), usando Markdown para formatação e tabelas.
                     """
 
-                    # Chamada unificada usando a biblioteca oficial para o modelo multimodal
+                    # Chamada usando o formato correto de URL de imagem de dados (Data URL)
                     response = client.chat_completion(
                         model="meta-llama/Llama-3.2-11B-Vision-Instruct",
                         messages=[
@@ -53,7 +58,7 @@ else:
                                 "role": "user",
                                 "content": [
                                     {"type": "text", "text": prompt_texto},
-                                    {"type": "image", "image": img_bytes}
+                                    {"type": "image_url", "image_url": {"url": data_url}}
                                 ]
                             }
                         ],
